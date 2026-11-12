@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reverse Voice</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:radial-gradient(circle at top,#29234f,#0b1020 65%);font-family:Tahoma,Arial,sans-serif;color:#f7f7ff}
+.app{width:min(520px,100%);padding:24px;background:#151b30;border:1px solid #343b60;border-radius:24px;box-shadow:0 22px 70px #0008}
+h1{text-align:center;margin:0;font-size:27px}.desc{text-align:center;color:#aeb8d6;font-size:13px;line-height:1.9;margin:10px 0 20px}
+.mic{height:125px;width:125px;margin:0 auto 16px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#8174ff,#5145ba);box-shadow:0 0 0 11px #8174ff18,0 12px 35px #6558db55;font-size:48px}
+.state{text-align:center;color:#c2cbed;font-size:13px;line-height:1.8;min-height:44px;margin-bottom:12px}
+button{border:0;border-radius:13px;padding:14px 10px;font:bold 14px Tahoma;cursor:pointer;color:white;background:#7568ed}
+button:disabled{opacity:.38;cursor:not-allowed}.main{width:100%;font-size:16px;padding:16px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.green{background:#15966d}.secondary{background:#303b5d}.red{background:#91445a}
+.notice{background:#242e4c;border:1px solid #3a476d;padding:12px;border-radius:12px;font-size:12px;line-height:1.9;color:#d4dcf5;margin-top:15px}
+audio{width:100%;margin-top:14px;display:none}.small{font-size:11px;color:#8d9abd;text-align:center;line-height:1.8;margin-top:14px}
+</style></head>
+<body><main class="app">
+<h1>🎙️ صداتو برعکس کن!</h1>
+<p class="desc">هر کلمه‌ای خواستی با صدای خودت بگو، ضبط کن و نسخه کاملاً معکوس‌شده‌اش رو گوش بده.</p>
+<div class="mic">🎤</div>
+<div class="state" id="status">در حال بررسی امکان دسترسی به میکروفون...</div>
+<button class="main" id="record">● شروع ضبط</button>
+<div class="actions">
+<button class="green" id="reverse" disabled>↔ ریورس صدا</button>
+<button class="secondary" id="play" disabled>▶ پخش ریورس</button>
+</div>
+<div class="actions">
+<button class="secondary" id="original" disabled>▶ صدای اصلی</button>
+<button class="red" id="reset">⟲ ضبط دوباره</button>
+</div>
+<audio id="player" controls></audio>
+<div class="notice" id="help">اگر ضبط شروع نشد، فایل را با Chrome باز کن و اجازه میکروفون را بده. پیش‌نمایش داخل بعضی برنامه‌ها از میکروفون پشتیبانی نمی‌کند.</div>
+<p class="small">پردازش صدا روی همین دستگاه انجام می‌شود و فایل ضبط‌شده به سروری ارسال نمی‌شود.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let recorder=null,chunks=[],blob=null,stream=null,isRecording=false,ctx=null,reverseBuffer=null,reverseUrl=null,originalUrl=null;
+function say(t){$('status').textContent=t}
+function clearFiles(){
+ if(originalUrl)URL.revokeObjectURL(originalUrl);
+ if(reverseUrl)URL.revokeObjectURL(reverseUrl);
+ originalUrl=reverseUrl=null;blob=null;reverseBuffer=null;
+ $('player').pause();$('player').removeAttribute('src');$('player').style.display='none';
+ $('reverse').disabled=$('play').disabled=$('original').disabled=true;
+}
+function checkMic(){
+ if(!window.isSecureContext){say('این صفحه در محیط امن اجرا نشده؛ برای میکروفون باید از HTTPS استفاده کنی.');return}
+ if(!navigator.mediaDevices?.getUserMedia){say('این مرورگر دسترسی ضبط صدا را پشتیبانی نمی‌کند. فایل را در Chrome باز کن.');return}
+ say('آماده ضبط! برای شروع روی دکمه بزن.');
+}
+$('record').onclick=async()=>{
+ if(isRecording){recorder.stop();return}
+ if(!navigator.mediaDevices?.getUserMedia){say('دسترسی میکروفون در این محیط فعال نیست. فایل را در Chrome و از یک آدرس HTTPS باز کن.');return}
+ try{
+  clearFiles();
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  const types=['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t));
+  recorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);
+  chunks=[];
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  recorder.onerror=()=>say('خطا هنگام ضبط. دوباره تلاش کن.');
+  recorder.onstop=()=>{
+   isRecording=false;
+   blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});
+   originalUrl=URL.createObjectURL(blob);
+   $('reverse').disabled=false;$('original').disabled=false;
+   $('record').textContent='● ضبط دوباره';
+   say('ضبط تموم شد؛ حالا روی «ریورس صدا» بزن.');
+   stream?.getTracks().forEach(t=>t.stop());stream=null;
+  };
+  recorder.start();isRecording=true;
+  $('record').textContent='■ توقف ضبط';say('در حال ضبط... صحبت کن.');
+ }catch(e){
+  let msg='دسترسی به میکروفون داده نشد.';
+  if(e.name==='NotAllowedError'||e.name==='SecurityError')msg='اجازه میکروفون رد شده یا این صفحه اجازه دسترسی ندارد. در تنظیمات سایت، Microphone را روی Allow بگذار.';
+  else if(e.name==='NotFoundError')msg='میکروفونی روی دستگاه پیدا نشد.';
+  else if(e.name==='NotReadableError')msg='میکروفون در برنامه دیگری مشغول است.';
+  say(msg);
+ }
+};
+$('reverse').onclick=async()=>{
+ if(!blob)return;
+ $('reverse').disabled=true;say('در حال پردازش و برعکس کردن صدا...');
+ try{
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)throw Error('AudioContext پشتیبانی نمی‌شود');
+  ctx=ctx||new AC();await ctx.resume();
+  const decoded=await ctx.decodeAudioData(await blob.arrayBuffer());
+  reverseBuffer=ctx.createBuffer(decoded.numberOfChannels,decoded.length,decoded.sampleRate);
+  for(let c=0;c<decoded.numberOfChannels;c++){
+   const a=decoded.getChannelData(c),b=reverseBuffer.getChannelData(c);
+   for(let i=0,j=a.length-1;i<a.length;i++,j--)b[i]=a[j];
+  }
+  reverseUrl=URL.createObjectURL(toWav(reverseBuffer));
+  $('player').src=reverseUrl;$('player').style.display='block';
+  $('play').disabled=false;say('آماده شد! صدای معکوس‌شده رو پخش کن. 🎉');
+ }catch(e){say('مرورگر نتونست این فرمت صدا رو بخونه. با آخرین نسخه Chrome امتحان کن.')}
+ finally{$('reverse').disabled=false}
+};
+$('play').onclick=async()=>{
+ if(!reverseBuffer)return;
+ await ctx.resume();const s=ctx.createBufferSource();s.buffer=reverseBuffer;s.connect(ctx.destination);s.start();
+ say('در حال پخش صدای معکوس‌شده...');
+ s.onended=()=>say('پخش تموم شد؛ می‌تونی دوباره گوش بدی.');
+};
+$('original').onclick=()=>{if(!originalUrl)return;const a=new Audio(originalUrl);a.play();say('در حال پخش صدای اصلی...');a.onended=()=>say('پخش صدای اصلی تموم شد.')};
+$('reset').onclick=()=>{
+ if(isRecording&&recorder)recorder.stop();
+ isRecording=false;stream?.getTracks().forEach(t=>t.stop());stream=null;clearFiles();
+ $('record').textContent='● شروع ضبط';say('آماده ضبط صدای جدیدی؟');
+};
+function toWav(b){
+ const n=b.numberOfChannels,len=b.length,rate=b.sampleRate,block=n*2,size=len*block;
+ const ab=new ArrayBuffer(44+size),v=new DataView(ab);
+ const str=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+ str(0,'RIFF');v.setUint32(4,36+size,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);
+ v.setUint16(20,1,true);v.setUint16(22,n,true);v.setUint32(24,rate,true);v.setUint32(28,rate*block,true);
+ v.setUint16(32,block,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,size,true);
+ const channels=Array.from({length:n},(_,c)=>b.getChannelData(c));let o=44;
+ for(let i=0;i<len;i++)for(let c=0;c<n;c++){let x=Math.max(-1,Math.min(1,channels[c][i]));v.setInt16(o,x<0?x*32768:x*32767,true);o+=2}
+ return new Blob([ab],{type:'audio/wav'});
+}
+checkMic();
+</script></body></html>
